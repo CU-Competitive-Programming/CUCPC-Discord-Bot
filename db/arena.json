@@ -1,8 +1,8 @@
 {
-  "max":4,
+  "max":2,
   "running":true,
   "log":"/handler.log",
-  "halite":"/../env/halite",
+  "engine":"/../env/engine",
   "out":"/../env/out/",
   "runs":5
 }

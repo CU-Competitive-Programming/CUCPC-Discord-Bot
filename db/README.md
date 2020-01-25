@@ -1,8 +1,8 @@
 # Database
 
-The `halite-tournaments` database has the following structure :
+The `tank-game` database has the following structure :
 
-- `halite-tournaments` (database name)
+- `tank-game` (database name)
   - `players` (collection with players info)
   - `settings` (collection with environment settings)
   - `queues` (where actions get queued for handler)
@@ -12,7 +12,7 @@ The `halite-tournaments` database has the following structure :
 
 `root` : has access to all databases and collections
 
-`arena` : only has access to `halite-tournaments`'s collections :
+`arena` : only has access to `tank-game`'s collections :
 - `players` (only find and update)
 - `queues` (find, update and insert)
 - `arena` (only find and update)
