@@ -119,31 +119,6 @@ async def uploadBot(link, username, fileName):
                                         + "requirements.txt"
                                     ).read()
 
-                                elif f.replace("MyBot", "") == "js" and os.path.isfile(
-                                    save + "package.json"
-                                ):
-                                    lib = os.popen(
-                                        "cd " + save + " && npm install"
-                                    ).read()
-                                break
-
-                    elif f.startswith("src"):
-                        for s in os.listdir(save + "src/"):
-                            if s == "MyBot.go":
-                                lang = languages.get("go")
-                                found = True
-                                lib = os.popen("cd " + save + " && go get").read()
-                                break
-                            elif s == "main.rs":
-                                lang = languages.get("rs")
-                                found = True
-                                break
-
-                    elif f.startswith("Halite2"):
-                        for s in os.listdir(save + "Halite2/"):
-                            if s == "Halite2.csproj":
-                                lang = languages.get("c#")
-                                found = True
                                 break
 
                     if found:
@@ -272,15 +247,7 @@ async def battle(players, width, height, mode):
     """
     Function that takes in these parametes:
     players = usernames of the players (array of string)
-    width = width of the map for battle (string)
-    height = height for the map for battle (string)
-    mode = type of battle, (int)
-            mode = 0, 1v1 normal battle
-            mode = 1, 1v1 match battle
-            mode = 2, 2v2 normal battle
-            mode = 3, 2v2 match battle
-            mode = 4, 4FFA normal battle
-            mode = 5, 4FFA match battle
+
     Function creates a queue in the db, the handler
     stars the battle and here it keeps checking until
     is finished ( or return a timout error ).
@@ -293,8 +260,8 @@ async def battle(players, width, height, mode):
         p = settings.db.players.find_one({"username": i.replace(" ", "")})
         pp.append(p)
 
-    modes = [2, 2, 4, 4, 4, 4]
-    types = ["battle", "match", "2v2", "2v2-match", "FFA", "FFA-match"]
+    modes = [2]
+    types = ["battle"]
 
     logs = []
     result = ""
@@ -337,7 +304,6 @@ async def battle(players, width, height, mode):
                 "status": "not-running",
                 "logfile": "",
                 "success": False,
-                "map": [width, height],
                 "name": battleName,
             }
             queueId = settings.db.queues.insert_one(data).inserted_id
@@ -357,10 +323,10 @@ async def battle(players, width, height, mode):
                 if q.get("status") == "finished" and os.path.isfile(q.get("logfile")):
                     if mode == 0 or mode == 2 or mode == 4:
                         if os.path.isfile(
-                            settings.path + "/../env/out/" + battleName + ".hlt"
+                            settings.path + "/../env/out/" + battleName + ".log"
                         ):
                             replay = (
-                                settings.path + "/../env/out/" + battleName + ".hlt"
+                                settings.path + "/../env/out/" + battleName + ".log"
                             )
 
                             with open(q.get("logfile"), "r") as l:
@@ -377,10 +343,10 @@ async def battle(players, width, height, mode):
                                 if not found:
                                     logs.append("")
 
-                            status = "**Battle ran successfully, here is the replay and halite output. Sending log files of players in DM...**"
+                            status = "**Battle ran successfully, here is the replay and engine output. Sending log files of players in DM...**"
 
                         else:
-                            status = "**Error while running the battle, here is the halite output.**"
+                            status = "**Error while running the battle, here is the engine output.**"
                             with open(q.get("logfile"), "r") as l:
                                 result = "```" + l.read() + "```"
 
@@ -403,7 +369,7 @@ async def battle(players, width, height, mode):
                             )
                             status = "**Match ran successfully, here are the results and the replays.**"
                         else:
-                            status = "**Error while running the match, here is the halite output.**"
+                            status = "**Error while running the match, here is the engine output.**"
 
                     break
 
