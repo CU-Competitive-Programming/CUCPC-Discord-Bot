@@ -1,6 +1,7 @@
 import os
 import threading
 import time
+import sys
 import subprocess
 import random
 import zipfile
@@ -8,16 +9,18 @@ import datetime
 import urllib.parse
 from pymongo import MongoClient
 
-#these will be hardcoded until we have
-#a function to set everything up automatically
-username = urllib.parse.quote_plus('arena')
-password = urllib.parse.quote_plus('')
-mongo = MongoClient('mongodb://%s:%s@localhost:27017/halite-tournaments' % (username, password))
+# these will be hardcoded until we have
+# a function to set everything up automatically
+username = urllib.parse.quote_plus("arena")
+password = urllib.parse.quote_plus("")
+mongo = MongoClient("mongodb://%s:%s@localhost:27017/tank-game" % (username, password))
 
 db = mongo["halite-tournaments"]
 s = db.arena.find_one({})
+game = db.game.find_one({})
 
 path = os.path.dirname(os.path.realpath(__file__))
+
 
 def log(string):
 
@@ -25,10 +28,15 @@ def log(string):
     Log function
     """
 
-    string = "Timestamp: - {:%Y-%m-%d %H:%M:%S}".format(datetime.datetime.now())+" "+ string
-    with open(path+s.get('log'), 'a') as (out):
-        out.write(string + '\n')
-    return '**' + string + '**'
+    string = (
+        "Timestamp: - {:%Y-%m-%d %H:%M:%S}".format(datetime.datetime.now())
+        + " "
+        + string
+    )
+    with open(path + s.get("log"), "a") as (out):
+        out.write(string + "\n")
+    return "**" + string + "**"
+
 
 def randmizeMap(m):
 
@@ -36,24 +44,13 @@ def randmizeMap(m):
     Randomize the maps for battle
     """
 
-    default = ["240", "160"]
-    maps = {
-        "small":[
-            ["216", "144"], #-10% from default
-            ["204", "136"], #-15% from default
-            ["192", "128"]], #-20% from default
-
-        "big":[
-            ["264", "176"], #+10% from default
-            ["276", "192"], #+15% from default
-            ["288", "192"]]  #+20% from default
-        }
     if len(m) == 0 or len(m) == 2:
-        return maps["small"][random.randint(0, 2)]
+        return game.get("maps")["small"][random.randint(0, 2)]
     elif len(m) == 1 or len(m) == 3:
-        return maps["big"][random.randint(0, 2)]
+        return game.get("maps")["big"][random.randint(0, 2)]
     else:
-        return default
+        return game.get("default")
+
 
 def randomizeSeed():
 
@@ -61,17 +58,19 @@ def randomizeSeed():
     Randomize the seed for battle
     """
 
-    return str(random.randint(2350513674, 2350513694))
+    return str(random.randint(game["seeds"][0], game["seeds"][1]))
 
-def forrest(): #reference alert
+
+def forrest():  # reference alert
 
     """
     Check runFile to see if we should run Handler
     """
 
-    return s.get('running')
+    return s.get("running")
 
-class BobTheBuilder(threading.Thread): #reference alert
+
+class BobTheBuilder(threading.Thread):  # reference alert
 
     """
     This Thread takes in the object from the queue,
@@ -89,30 +88,45 @@ class BobTheBuilder(threading.Thread): #reference alert
         threading.Thread.__init__(self)
         self._stop_event = threading.Event()
         self.q = q
-        self.player = self.q.get('players')
-        self.path = self.player.get('path')
+        self.player = self.q.get("players")
+        self.path = self.player.get("path")
         self.log = ""
 
     def run(self):
-        os.system("rm "+self.path+"*.log "+self.path+"*.hlt > /dev/null 2>&1")
+        os.system("rm " + self.path + "*.log " + self.path + "*.hlt > /dev/null 2>&1")
 
-        self.comp = self.player.get('commands')[0]
-        self.fire = self.player.get('commands')[1]
+        self.comp = self.player.get("commands")[0]
+        self.fire = self.player.get("commands")[1]
+        output = ""
 
         if self.comp != "":
             self.log += "*****COMPILER LOG*****\n"
             try:
-                output = subprocess.check_output("cd "+self.path+" && "+self.comp, timeout=60, shell=True).decode()
-                self.log += output+"\n\n"
+                output = subprocess.check_output(
+                    "cd " + self.path + " && " + self.comp, timeout=120, shell=True
+                ).decode()
+                self.log += output + "\n\n"
 
             except subprocess.TimeoutExpired:
                 self.log += "Timeout Error!\n"
 
             except subprocess.CalledProcessError as e:
                 self.log += str(e)
+                self.log += output + "\n\n"
 
-        self.fire = "cd "+self.path+" && "+self.fire
-        command = "/."+path+s.get('halite')+" -d \"240 160\" \""+self.fire+"\" \""+self.fire+"\" -i "+path+s.get('out')
+        self.fire = "cd " + self.path + " && " + self.fire
+        command = (
+            "/."
+            + path
+            + game.get("halite")
+            + ' -d "240 160" "'
+            + self.fire
+            + '" "'
+            + self.fire
+            + '" -i '
+            + path
+            + s.get("out")
+        )
         self.log += "*****HALITE LOG*****\n"
         success = False
 
@@ -123,20 +137,35 @@ class BobTheBuilder(threading.Thread): #reference alert
             if output.splitlines(True)[-3].startswith("Opening"):
                 replay = output.splitlines(True)[-3].split()[4]
                 success = True
-                os.system("rm "+replay+" > /dev/null 2>&1")
+                os.system("rm " + replay + " > /dev/null 2>&1")
             else:
                 status = "failed"
 
         except subprocess.TimeoutExpired:
             self.log += "Timeout Error!\n"
 
-        except subprocess.CalledProcessError as e:
+        except Exception as e:
+            self.log += str(
+                "Command '{}' returned with error (code {}): {}".format(
+                    e.cmd, e.returncode, e.output
+                )
+            )
             self.log += str(e)
 
-        with open(path+s.get('out')+self.name+".txt", "w") as l :
+        with open(path + s.get("out") + self.name + ".txt", "w") as l:
             l.write(self.log)
 
-        db.queues.update_one({"_id":self.q.get("_id")}, {"$set": {"status":"finished", "success":success, "logfile":path+s.get('out')+self.name+".txt"}}, upsert=True)
+        db.queues.update_one(
+            {"_id": self.q.get("_id")},
+            {
+                "$set": {
+                    "status": "finished",
+                    "success": success,
+                    "logfile": path + s.get("out") + self.name + ".txt",
+                }
+            },
+            upsert=True,
+        )
 
         self.stop()
 
@@ -145,6 +174,7 @@ class BobTheBuilder(threading.Thread): #reference alert
 
     def stopped(self):
         return self._stop_event.is_set()
+
 
 class Arena(threading.Thread):
 
@@ -160,96 +190,175 @@ class Arena(threading.Thread):
         threading.Thread.__init__(self)
         self._stop_event = threading.Event()
         self.q = q
-        self.p1 = self.q.get("players")[0]
-        self.p2 = self.q.get("players")[1]
-        self.name = self.p1.get('username')+"VS"+self.p2.get('username')
-        self.official = False
-        if self.q.get("type") == "match":
-            self.official = True
-            self.maps = []
-        else:
+        self.players = []
+        for p in self.q.get("players"):
+            self.players.append(p)
+        self.name = self.q.get("name")
+        self.type = self.q.get("type")
+        self.maps = []
+        if self.type != "match":
             self.sizes = q.get("map")
+
+        self.official = ["match", "2v2-match", "FFA-match"]
         self.log = ""
-        self.battles = 5
         self.results = []
-        self.out = path+s.get('out')+self.name
+        self.out = path + s.get("out")
         self.logFile = ""
 
     def start(self):
-        os.system("rm "+self.p1.get("path")+"*.log "+self.p2.get("path")+"*.log > /dev/null 2>&1")
+        for p in self.players:
+            os.system("rm " + p.get("path") + "*.log  > /dev/null 2>&1")
 
         success = False
 
-        if self.official:
+        if self.type in self.official:
+            self.out += self.name
             try:
                 os.mkdir(self.out)
             except:
                 pass
-            self.logFile = self.out+"/battle.log"
-            zipped = zipfile.ZipFile(self.out+"/match.zip", mode="w")
-            for b in range(self.battles):
-                self.sizes = randmizeMap(self.maps)
-                self.maps.append(self.sizes)
-                self.command = ["/."+path+s.get('halite'), "-d", self.sizes[0]+" "+self.sizes[1],\
-                                "cd "+self.p1.get("path")+" && "+self.p1.get("commands")[1], \
-                                "cd "+self.p2.get("path")+" && "+self.p2.get("commands")[1], \
-                                "-t", "-i", self.out+"/", "-s", randomizeSeed()]
+            self.logFile = self.out + "/battle.log"
+            zipped = zipfile.ZipFile(self.out + "/match.zip", mode="w")
+
+            for b in range(int(game.get("runs"))):
+                if self.type == "2v2-match" or "FFA-match":
+                    self.sizes = game.get("big-map")
+                else:
+                    self.sizes = randmizeMap(self.maps)
+                    self.maps.append(self.sizes)
+                self.command = [
+                    "/." + path + game.get("halite"),
+                    "-d",
+                    self.sizes[0] + " " + self.sizes[1],
+                ]
+                for p in self.players:
+                    self.command.append(
+                        "cd " + p.get("path") + " && " + p.get("commands")[1]
+                    )
+                self.command += ["-i", self.out + "/", "-s", randomizeSeed()]
+                if self.type == "2v2-match":
+                    self.command.append("--team")
 
                 try:
-                    output = subprocess.check_output(self.command, timeout=120).decode()
-                    if output.splitlines(True)[-3].startswith("Opening"):
-                        replay = output.splitlines(True)[-3].split()[4]
-                        os.rename(replay, self.out+"/"+str(b+1)+".hlt")
-                        self.results.append([self.p1.get("username")+" came in rank "+output.splitlines(True)[-2].split()[6], self.p2.get("username")+" came in rank "+output.splitlines(True)[-1].split()[6]])
-                        zipped.write(self.out+"/"+str(b+1)+".hlt", arcname=str(b+1)+".hlt")
+                    timeout = game.get("timeout") * game.get("max_turns") + game.get(
+                        "extra_time"
+                    )
+                    o = subprocess.check_output(self.command, timeout=timeout).decode()
+                    output = o.splitlines(True)
+                    checker = (
+                        -(len(self.players) + 1) if self.type != "2v2-match" else -3
+                    )
+
+                    if output[checker].startswith("Opening"):
+                        replay = output[checker].split()[4]
+                        os.rename(replay, self.out + "/" + str(b + 1) + ".hlt")
+                        tmp = []
+                        w = len(self.players) if self.type != "2v2-match" else 2
+                        for i in range(w):
+                            tmp.append(output[-(i + 1)])
+                        self.results.append(tmp)
+                        zipped.write(
+                            self.out + "/" + str(b + 1) + ".hlt",
+                            arcname=str(b + 1) + ".hlt",
+                        )
                         success = True
-                    else :
-                        self.log += "ERROR RUNNING BATTLE:\n\n"+output
+                    else:
+                        self.log += "ERROR RUNNING BATTLE:\n\n" + o
 
                 except subprocess.TimeoutExpired:
                     self.log += "Timeout Error\n"
 
                 except Exception as e:
-                    self.log += str(e)+"\n"
+                    self.log += str(e) + "\n"
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    self.log += (
+                        "Encountered exception : "
+                        + str(e)
+                        + "\n\t"
+                        + str(exc_type)
+                        + " -- "
+                        + str(fname)
+                        + " -- "
+                        + str(exc_tb.tb_lineno)
+                    )
 
             zipped.close()
 
         else:
-            self.logFile = self.out+".log"
-            self.command = ["/."+path+s.get('halite'), "-d", self.sizes[0]+" "+self.sizes[1],\
-                            "cd "+self.p1.get("path")+" && "+self.p1.get("commands")[1], \
-                            "cd "+self.p2.get("path")+" && "+self.p2.get("commands")[1], \
-                            "-t", "-i", path+s.get('out')]
+            self.logFile = self.out + self.name + ".log"
+            self.command = [
+                "/." + path + game.get("halite"),
+                "-d",
+                self.sizes[0] + " " + self.sizes[1],
+            ]
+            for p in self.players:
+                self.command.append(
+                    "cd " + p.get("path") + " && " + p.get("commands")[1]
+                )
+            self.command += ["-i", self.out, "-s", randomizeSeed()]
+            if self.type == "2v2":
+                self.command.append("--team")
 
             try:
-                output = subprocess.check_output(self.command, timeout=120).decode()
+                timeout = game.get("timeout") * game.get("max_turns") + game.get(
+                    "extra_time"
+                )
+                o = subprocess.check_output(self.command, timeout=timeout).decode()
+                output = o.splitlines(True)
+                checker = -(len(self.players) + 1) if self.type != "2v2" else -3
 
-                if output.splitlines(True)[-3].startswith("Opening"):
-                    replay = output.splitlines(True)[-3].split()[4]
-                    os.rename(replay, self.out+".hlt")
-                    self.results.append([self.p1.get("username")+" came in rank "+output.splitlines(True)[-2].split()[6], self.p2.get("username")+" came in rank "+output.splitlines(True)[-1].split()[6]])
+                if output[checker].startswith("Opening"):
+                    replay = output[checker].split()[4]
+                    os.rename(replay, self.out + self.name + ".hlt")
+                    tmp = []
+                    w = len(self.players) if self.type != "2v2" else 2
+                    for i in range(w):
+                        tmp.append(output[-(i + 1)])
+                    self.results.append(tmp)
                     success = True
-                else :
-                    self.log += "ERROR RUNNING BATTLE:\n\n"+output
+                else:
+                    self.log += "ERROR RUNNING BATTLE:\n\n" + o
 
             except subprocess.TimeoutExpired:
                 self.log += "Timeout Error\n"
 
             except Exception as e:
-                self.log += str(e)+"\n"
+                self.log += str(e) + "\n"
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                self.log += (
+                    "Encountered exception : "
+                    + str(e)
+                    + "\n\t"
+                    + str(exc_type)
+                    + " -- "
+                    + str(fname)
+                    + " -- "
+                    + str(exc_tb.tb_lineno)
+                )
 
         num = 1
         for r in self.results:
-            if len(r) == 2:
-                self.log += "Round number : "+str(num)+"\n"+r[0]+"\n"+r[1]+"\n\n"
-            else:
-                break
+            self.log += "Round number : " + str(num) + "\n\n"
+            for p in r:
+                self.log += p + "\n"
+            self.log += "\n\n"
             num += 1
 
         with open(self.logFile, "w") as l:
             l.write(self.log)
 
-        db.queues.update_one({"_id":self.q.get("_id")}, {"$set": {"status":"finished", "success":success, "logfile":self.logFile}})
+        db.queues.update_one(
+            {"_id": self.q.get("_id")},
+            {
+                "$set": {
+                    "status": "finished",
+                    "success": success,
+                    "logfile": self.logFile,
+                }
+            },
+        )
 
         self.stop()
 
@@ -272,60 +381,66 @@ class Handler(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self._stop_event = threading.Event()
-        self.max = s.get('max')
+        self.max = s.get("max")
         self.queue = []
 
     def start(self):
         while forrest():
             self.space = self.max
-            for q in db.queues.find({"type":"compile"}):
+            for q in db.queues.find({"type": "compile"}):
                 if self.space == 0:
                     break
-                if q.get('status') == "not-running":
+                if q.get("status") == "not-running":
                     thread = BobTheBuilder(q)
-                    thread.setName(q.get('players').get('username'))
+                    thread.setName(q.get("players").get("username"))
                     self.queue.append(thread)
                     self.space -= 1
-                    db.queues.update_one({"_id":q.get('_id')}, {"$set":{"status":"running"}}, upsert=True)
+                    db.queues.update_one(
+                        {"_id": q.get("_id")},
+                        {"$set": {"status": "running"}},
+                        upsert=True,
+                    )
                     thread.start()
                 else:
                     continue
 
             if self.space > 0:
-                for q in db.queues.find({"type":"match"}):
-                    if self.space == 0:
-                        break
-                    if q.get('status') == "not-running":
-                        thread = Arena(q)
-                        thread.setName(q.get('players')[0].get('username')+"VS"+q.get('players')[1].get('username'))
-                        self.queue.append(thread)
-                        self.space -= 1
-                        db.queues.update_one({"_id":q.get('_id')}, {"$set":{"status":"running"}}, upsert=True)
-                        thread.start()
-                    else:
-                        continue
+                queues = [
+                    db.queues.find({"type": "match"}),
+                    db.queues.find({"type": "2v2-match"}),
+                    db.queues.find({"type": "FFA-match"}),
+                    db.queues.find({"type": "battle"}),
+                    db.queues.find({"type": "2v2"}),
+                    db.queues.find({"type": "FFA"}),
+                ]
 
-            if self.space > 0:
-                for q in db.queues.find({"type":"battle"}):
-                    if self.space == 0:
-                        break
-                    if q.get('status') == "not-running":
-                        thread = Arena(q)
-                        thread.setName(q.get('players')[0].get('username')+"VS"+q.get('players')[1].get('username'))
-                        self.queue.append(thread)
-                        self.space -= 1
-                        db.queues.update_one({"_id":q.get('_id')}, {"$set":{"status":"running"}}, upsert=True)
-                        thread.start()
-                    else:
-                        continue
+                for b in queues:
+                    for q in b:
+                        if self.space == 0:
+                            break
+                        if q.get("status") == "not-running":
+                            thread = Arena(q)
+                            thread.setName(q.get("name"))
+                            self.queue.append(thread)
+                            self.space -= 1
+                            db.queues.update_one(
+                                {"_id": q.get("_id")},
+                                {"$set": {"status": "running"}},
+                                upsert=True,
+                            )
+                            thread.start()
+                        else:
+                            continue
 
             while len(self.queue) > 0:
-                for thread in self.queue :
+                for thread in self.queue:
                     if thread.stopped():
                         self.queue.remove(thread)
 
             time.sleep(1)
 
+        print("Handler going down...")
+        self.stop()
 
     def stop(self):
         self._stop_event.set()
@@ -333,15 +448,31 @@ class Handler(threading.Thread):
     def stopped(self):
         return self._stop_event.is_set()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     try:
-        if forrest(): #if we are running
+        if forrest():  # if we are running
             h = Handler()
             h.setName("hand")
             print("Starting handler up...")
             h.start()
-        else :
+        else:
             print("Handler is not running... sad.")
 
     except KeyboardInterrupt:
         pass
+
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        l = (
+            "Encountered exception : "
+            + str(e)
+            + "\n\t"
+            + str(exc_type)
+            + " -- "
+            + str(fname)
+            + " -- "
+            + str(exc_tb.tb_lineno)
+        )
+        log(str(l))

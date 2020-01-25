@@ -11,6 +11,6 @@
   "user":"arena",
   "pwd":"",
   "roles" : [
-    {"role":"arena", "db":"halite-tournaments"}
+    {"role":"arena", "db":"tank-game"}
   ]
 }

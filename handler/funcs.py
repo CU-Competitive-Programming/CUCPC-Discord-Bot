@@ -2,21 +2,18 @@ import os
 import datetime
 import zipfile
 import settings
+import subprocess
 import time
 import random
 import asyncio
 from pymongo import MongoClient
 
-languages = {'python': ['py', '', 'python3 MyBot.py'],
- 'java': ['java', 'javac MyBot.java', 'java MyBot'],
- 'rust': ['rs', 'cargo rustc --release -q -- -Awarnings', 'target/release/MyBot'],
- 'javascript': ['js', '', 'node MyBot.js'],
- 'c++': ['cpp', 'set -e && cmake . && make MyBot', './MyBot'],
- 'dart': ['dart', '', 'dart MyBot.dart'],
- 'go': ['go', 'export GOPATH=$(pwd) && go build MyBot.go', './MyBot'],
- 'haskell': ['hs', 'ghc --make MyBot.hs -O -v0 -rtsopts -outputdir dist', './MyBot.exe'],
- 'ruby': ['rb', '', 'ruby MyBot.rb'],
- 'c#': ['cs', 'xbuild Halite2/Halite2.csproj', 'mono Halite2/bin/Debug/Halite2.exe']}
+languages = {
+    "python": ["py", "", "python3 MyBot.py"],
+    "java": ["java", "javac MyBot.java", "java MyBot"],
+    "c++": ["cpp", "set -e && cmake . && make MyBot", "./MyBot"],
+}
+
 
 def log(string):
 
@@ -24,10 +21,11 @@ def log(string):
     A simple log function
     """
 
-    string = "Timestamp: - "+getTime()+" "+ string
-    with open(settings.path+"/"+settings.logFile, 'a') as (out):
-        out.write(string + '\n')
-    return '**' + string + '**'
+    string = "Timestamp: - " + getTime() + " " + string
+    with open(settings.path + "/" + settings.logFile, "a") as (out):
+        out.write(string + "\n")
+    return "**" + string + "**"
+
 
 def getTime():
 
@@ -36,7 +34,8 @@ def getTime():
     speed things up
     """
 
-    return ('{:%Y-%m-%d %H:%M:%S}').format(datetime.datetime.now())
+    return ("{:%Y-%m-%d %H:%M:%S}").format(datetime.datetime.utcnow())
+
 
 def str_to_bool(s):
 
@@ -44,10 +43,25 @@ def str_to_bool(s):
     Helper function to handle json settings
     """
 
-    if s == 'True':
+    if s == "True":
         return True
-    if s == 'False':
+    if s == "False":
         return False
+
+
+def checkPulse():
+    return settings.db.arena.find_one({}).get("running")
+
+
+def manageHandler(start=True):
+    if start:
+        handler = subprocess.Popen(
+            "python3 " + settings.path + "/handler.py", shell=True
+        )
+        settings.db.arena.update_one({}, {"$set": {"running": True}}, upsert=True)
+    else:
+        settings.db.arena.update_one({}, {"$set": {"running": False}}, upsert=True)
+
 
 async def uploadBot(link, username, fileName):
 
@@ -58,56 +72,67 @@ async def uploadBot(link, username, fileName):
     compiler function
     """
 
-    username = username.replace(' ', '')
-    player = settings.db.players.find_one({"username":username})
-    save = settings.path + '/../bots/' + username + '/'
+    username = username.replace(" ", "")
+    player = settings.db.players.find_one({"username": username})
+    save = settings.path + "/../bots/" + username + "/"
 
     if player is None:
         player = {
-            "username":username,
-            "path":save,
-            "lang":"",
-            "commands":[],
-            "flagged":False,
-            "running":False
+            "username": username,
+            "path": save,
+            "lang": "",
+            "commands": [],
+            "flagged": False,
+            "running": False,
         }
         playerId = settings.db.players.insert_one(player).inserted_id
 
     else:
         playerId = player.get("_id")
 
-    if not player.get('running'):
+    if not player.get("running"):
         try:
-            os.system("rm -r "+save+" > /dev/null 2>&1") #clean up folders
-            os.mkdir(save) #create folder
-            if fileName[-4:] == '.zip': #check file is a zip file
-                os.system('wget -q -O ' + save + fileName + ' ' + link)
-                z = zipfile.ZipFile(save + fileName, 'r')
+            os.system("rm -r " + save + " > /dev/null 2>&1")  # clean up folders
+            os.mkdir(save)  # create folder
+            if fileName[-4:] == ".zip":  # check file is a zip file
+                os.system("wget -q -O " + save + fileName + " " + link)
+                z = zipfile.ZipFile(save + fileName, "r")
                 z.extractall(save)
                 z.close()
 
                 found = False
                 lang, lib = None, None
                 for f in os.listdir(save):
-                    if f.startswith('MyBot.'):
+                    if f.startswith("MyBot."):
                         for k, v in languages.items():
-                            if f.replace('MyBot.', '') == v[0]:
+                            if f.replace("MyBot.", "") == v[0]:
                                 found = True
                                 lang = v
-                                if f.replace('MyBot.', '') == "py" and os.path.isfile(save+"requirements.txt"):
-                                    lib = os.popen("cd "+save+" && pip3 install -r "+save+"requirements.txt").read()
+                                if f.replace("MyBot.", "") == "py" and os.path.isfile(
+                                    save + "requirements.txt"
+                                ):
+                                    lib = os.popen(
+                                        "cd "
+                                        + save
+                                        + " && sudo -H pip3 install -r "
+                                        + save
+                                        + "requirements.txt"
+                                    ).read()
 
-                                elif r.replace('MyBot', '') == "js" and os.path.isfile(save+"package.json"):
-                                    lib = os.popen("cd "+save+" && npm install").read()
+                                elif f.replace("MyBot", "") == "js" and os.path.isfile(
+                                    save + "package.json"
+                                ):
+                                    lib = os.popen(
+                                        "cd " + save + " && npm install"
+                                    ).read()
                                 break
 
-
                     elif f.startswith("src"):
-                        for s in os.listdir(save+"src/"):
+                        for s in os.listdir(save + "src/"):
                             if s == "MyBot.go":
                                 lang = languages.get("go")
                                 found = True
-                                lib = os.popen("cd "+save+" && go get").read()
+                                lib = os.popen("cd " + save + " && go get").read()
                                 break
                             elif s == "main.rs":
                                 lang = languages.get("rs")
@@ -115,7 +140,7 @@ async def uploadBot(link, username, fileName):
                                 break
 
                     elif f.startswith("Halite2"):
-                        for s in os.listdir(save+"Halite2/"):
+                        for s in os.listdir(save + "Halite2/"):
                             if s == "Halite2.csproj":
                                 lang = languages.get("c#")
                                 found = True
@@ -126,32 +151,54 @@ async def uploadBot(link, username, fileName):
 
                 compileLog = ""
                 if lang != None and found:
-                    settings.db.players.update_one({"_id":playerId}, {"$set":{"lang":lang[0], "commands":[lang[1], lang[2]]}}, upsert=True)
-                    player = settings.db.players.find_one({"_id":playerId})
+                    settings.db.players.update_one(
+                        {"_id": playerId},
+                        {"$set": {"lang": lang[0], "commands": [lang[1], lang[2]]}},
+                        upsert=True,
+                    )
+                    player = settings.db.players.find_one({"_id": playerId})
                     text, compileLog = await compileBot(player)
-                    if compileLog != "" :
-                        text = "File bot : "+fileName+", "+text
+                    if compileLog != "":
+                        text = "File bot : " + fileName + ", " + text
 
-                    if lib != None :
-                        text += "\nHere is output of external libraries installation :\n"+lib
+                    if lib != None:
+                        text += (
+                            "\nHere is output of external libraries installation :\n"
+                            + lib
+                        )
 
                 elif lang != None and not found:
-                    text = 'File bot : ' + fileName + ' conatins a bot file but the language : '+ext+' isn\'t supported!'
+                    text = (
+                        "File bot : "
+                        + fileName
+                        + " conatins a bot file but the language : "
+                        + ext
+                        + " isn't supported!"
+                    )
 
                 elif lang == None:
-                    text = 'File bot : ' + fileName + ' does not contain a **MyBot** file of any type!'
+                    text = (
+                        "File bot : "
+                        + fileName
+                        + " does not contain a **MyBot** file of any type!"
+                    )
 
                 log(text)
-                return text, compileLog
+                return text, compileLog, save + fileName
 
             return "File wasn't a .zip file, check the rules!", ""
 
         except Exception as e:
             s = log(str(e))
-            return s, ""
+            return s, "", ""
 
     else:
-        return "Cannot compile "+fileName+", user is already running a battle/match or compiling other code!", ""
+        return (
+            "Cannot compile "
+            + fileName
+            + ", user is already running a battle/match or compiling other code!",
+            "",
+        )
 
 
 async def compileBot(player):
@@ -167,28 +214,35 @@ async def compileBot(player):
     compiler log.
     """
 
-    #clean up logs
-    os.system("rm -r "+settings.path+"/../env/out/"+player["username"]+".txt"" > /dev/null 2>&1")
+    # clean up logs
+    os.system(
+        "rm -r " + settings.path + "/../env/out/" + player["username"] + ".txt"
+        " > /dev/null 2>&1"
+    )
     compileLog = ""
     data = {
-        "type":"compile",
-        "players":player,
-        "status":"not-running",
-        "logfile":"",
-        "success":False
+        "type": "compile",
+        "players": player,
+        "status": "not-running",
+        "logfile": "",
+        "success": False,
     }
     queueId = settings.db.queues.insert_one(data).inserted_id
-    settings.db.players.update_one({"_id":player.get("_id")}, {"$set":{"running":True}}, upsert=True)
+    settings.db.players.update_one(
+        {"_id": player.get("_id")}, {"$set": {"running": True}}, upsert=True
+    )
 
     secs = 0
-    text = "took too much time to compile! Max is "+str(settings.compileOut)+"s"
-    while secs <= settings.compileOut:
-        q = settings.db.queues.find_one({"_id":queueId})
+    text = "took too much time to compile! Max is " + str(240) + "s"
+    while secs <= 240:
+        q = settings.db.queues.find_one({"_id": queueId})
         if q.get("status") == "finished":
             if q.get("success"):
                 compileLog = q.get("logfile")
                 if compileLog != "":
-                    text = "submitted, compiled and run successfully! Sending log file..."
+                    text = (
+                        "submitted, compiled and run successfully! Sending log file..."
+                    )
                 else:
                     text = "submitted, compiled and run successfully! Error loading log file..."
 
@@ -205,20 +259,28 @@ async def compileBot(player):
             await asyncio.sleep(1)
             secs += 1
 
-    settings.db.queues.delete_one({"_id":queueId})
-    settings.db.players.update_one({"_id":player.get("_id")}, {"$set":{"running":False}}, upsert=True)
+    settings.db.queues.delete_one({"_id": queueId})
+    settings.db.players.update_one(
+        {"_id": player.get("_id")}, {"$set": {"running": False}}, upsert=True
+    )
 
     return text, compileLog
 
-async def battle(p1, p2, width, height, official):
+
+async def battle(players, width, height, mode):
 
     """
     Function that takes in these parametes:
-    p1 = player one username (string)
-    p2 = player two username (string)
+    players = usernames of the players (array of string)
     width = width of the map for battle (string)
     height = height for the map for battle (string)
-    official = if battle is an official match (bool)
+    mode = type of battle, (int)
+            mode = 0, 1v1 normal battle
+            mode = 1, 1v1 match battle
+            mode = 2, 2v2 normal battle
+            mode = 3, 2v2 match battle
+            mode = 4, 4FFA normal battle
+            mode = 5, 4FFA match battle
     Function creates a queue in the db, the handler
     stars the battle and here it keeps checking until
     is finished ( or return a timout error ).
@@ -226,107 +288,140 @@ async def battle(p1, p2, width, height, official):
     the player individual logs
     """
 
-    p1Name = p1.replace(' ', '')
-    p2Name = p2.replace(' ', '')
+    pp = []
+    for i in players:
+        p = settings.db.players.find_one({"username": i.replace(" ", "")})
+        pp.append(p)
 
-    p1 = settings.db.players.find_one({"username":p1Name})
-    p2 = settings.db.players.find_one({"username":p2Name})
+    modes = [2, 2, 4, 4, 4, 4]
+    types = ["battle", "match", "2v2", "2v2-match", "FFA", "FFA-match"]
 
-    p1Ava, p2Ava = False, False
-    if p1 != None :
-        p1Ava = True
-    if p2 != None :
-        p2Ava = True
-
-    log1 = ""
-    log2 = ""
+    logs = []
     result = ""
     replay = ""
     status = ""
 
-    if p1Ava and p2Ava :
-        battleName = p1.get("username")+"VS"+p2.get("username")
-        if p1.get("running") or p2.get("running"):
-            status = "**Error setting up the battle!** "+p1Name+" already running : *"+str(p1.get("running"))+"*, "+p2Name+" already running : *"+str(p2.get("running"))+"*"
+    if len(pp) == modes[mode] and not None in pp:
+        battleName = ""
+        ready = False
+        count = 0
+        for p in pp:
+            if p.get("running"):
+                status = (
+                    "**Error setting up the battle!** "
+                    + p.get("username")
+                    + " **is already running something!**"
+                )
+                ready = False
+                break
+            battleName += p.get("username")
+            if len(pp) == 2:
+                battleName += "VS" if count == 0 else ""
+            else:
+                battleName += "-" if p != pp[-1] else ""
+            count += 1
+            ready = True
 
-        else:
-            os.system("rm "+settings.path+"/../env/out/"+battleName+"* > /dev/null 2>&1")
-            if not official:
-                data = {
-                    "type":"battle",
-                    "players":[p1, p2],
-                    "status":"not-running",
-                    "logfile":"",
-                    "success":False,
-                    "map":[width, height]
-                }
-                queueId = settings.db.queues.insert_one(data).inserted_id
-                settings.db.players.update_one({"_id":p1.get("_id")}, {"$set":{"running":True}}, upsert=True)
-                settings.db.players.update_one({"_id":p2.get("_id")}, {"$set":{"running":True}}, upsert=True)
+        if ready:
+            os.system(
+                "rm "
+                + settings.path
+                + "/../env/out/"
+                + battleName
+                + "* > /dev/null 2>&1"
+            )
 
-                secs = 0
-                status = "**Battle took too much time! Max is "+str(settings.runOut)+"s**"
-                while secs <= settings.runOut: #time same as env/handler.py
-                    q = settings.db.queues.find_one({"_id":queueId})
-                    if q.get("status") == "finished" and os.path.isfile(q.get("logfile")):
-                        if os.path.isfile(settings.path+"/../env/out/"+battleName+".hlt"):
-                            replay = settings.path+"/../env/out/"+battleName+".hlt"
+            data = {
+                "type": types[mode],
+                "players": pp,
+                "status": "not-running",
+                "logfile": "",
+                "success": False,
+                "map": [width, height],
+                "name": battleName,
+            }
+            queueId = settings.db.queues.insert_one(data).inserted_id
+            for p in pp:
+                settings.db.players.update_one(
+                    {"_id": p.get("_id")}, {"$set": {"running": True}}, upsert=True
+                )
+
+            secs = 0
+            timeout = settings.g.get("timeout") * settings.g.get(
+                "max_turns"
+            ) + settings.g.get("extra_time")
+            status = "**Battle took too much time! Max is " + str(timeout) + "s**"
+
+            while secs <= timeout:  # time same as env/handler.py
+                q = settings.db.queues.find_one({"_id": queueId})
+                if q.get("status") == "finished" and os.path.isfile(q.get("logfile")):
+                    if mode == 0 or mode == 2 or mode == 4:
+                        if os.path.isfile(
+                            settings.path + "/../env/out/" + battleName + ".hlt"
+                        ):
+                            replay = (
+                                settings.path + "/../env/out/" + battleName + ".hlt"
+                            )
+
                             with open(q.get("logfile"), "r") as l:
-                                result = "```"+l.read()+"```"
-                            for f in os.listdir(p1.get("path")):
-                                if f.endswith(".log"):
-                                    log1 = p1.get("path")+f
-                            for f in os.listdir(p2.get("path")):
-                                if f.endswith(".log"):
-                                    log2 = p2.get("path")+f
-                                status = "**Battle ran successfully, here is the replay and halite output. Sending log files of players in DM...**"
+                                result = "```" + l.read() + "```"
+
+                            for p in pp:
+                                found = False
+                                for f in os.listdir(p.get("path")):
+                                    if f.endswith(".log"):
+                                        logs.append(p.get("path") + f)
+                                        found = True
+                                        break
+
+                                if not found:
+                                    logs.append("")
+
+                            status = "**Battle ran successfully, here is the replay and halite output. Sending log files of players in DM...**"
+
                         else:
                             status = "**Error while running the battle, here is the halite output.**"
+                            with open(q.get("logfile"), "r") as l:
+                                result = "```" + l.read() + "```"
 
-                        break
+                    elif mode == 1 or mode == 3 or mode == 5:
+                        with open(q.get("logfile"), "r") as l:
+                            result = l.read()
+                        if os.path.exists(
+                            settings.path
+                            + "/../env/out/"
+                            + battleName
+                            + "/"
+                            + str(int(settings.g.get("runs")))
+                            + ".hlt"
+                        ):
+                            replay = (
+                                settings.path
+                                + "/../env/out/"
+                                + battleName
+                                + "/match.zip"
+                            )
+                            status = "**Match ran successfully, here are the results and the replays.**"
+                        else:
+                            status = "**Error while running the match, here is the halite output.**"
 
-                    else:
-                        await asyncio.sleep(1)
-                        secs += 1
+                    break
 
-            else:
-                data = {
-                    "type":"match",
-                    "players":[p1, p2],
-                    "status":"not-running",
-                    "logfile":"",
-                    "success":False
-                }
-                queueId = settings.db.queues.insert_one(data).inserted_id
-                settings.db.players.update_one({"_id":p1.get("_id")}, {"$set":{"running":True}}, upsert=True)
-                settings.db.players.update_one({"_id":p2.get("_id")}, {"$set":{"running":True}}, upsert=True)
+                else:
+                    await asyncio.sleep(1)
+                    secs += 1
 
-                secs = 0
-                status = "**Match took too much time! Max is "+str(settings.runOut*settings.runs)+"s**"
-                while secs <= settings.runOut*settings.runs:
-                    q = settings.db.queues.find_one({"_id":queueId})
-                    if q.get("status") == "finished":
-                        if os.path.exists(settings.path+"/../env/out/"+battleName+"/battle.log"):
-                            with open(settings.path+"/../env/out/"+battleName+"/battle.log", "r") as l:
-                                result = "```"+l.read()+"```"
-
-                            if os.path.exists(settings.path+"/../env/out/"+battleName+"/"+str(settings.runs)+".hlt"):
-                                replay = settings.path+"/../env/out/"+battleName+"/match.zip"
-                                status = "**Match ran successfully, here are the results and the replays.**"
-                            else:
-                                status = "**Error while running the match, here is the halite output.**"
-
-                            break
-
-                    else:
-                        await asyncio.sleep(1)
-                        secs += 1
-
-            settings.db.queues.delete_one({"_id":queueId})
-            settings.db.players.update_one({"_id":p1.get("_id")}, {"$set":{"running":False}}, upsert=True)
-            settings.db.players.update_one({"_id":p2.get("_id")}, {"$set":{"running":False}}, upsert=True)
+            settings.db.queues.delete_one({"_id": queueId})
+            for p in pp:
+                settings.db.players.update_one(
+                    {"_id": p.get("_id")}, {"$set": {"running": False}}, upsert=True
+                )
 
     else:
-        status = "**Error setting up the battle! Submissions state :** ***"+p1Name+"="+str(p1Ava)+" "+p2Name+"="+str(p2Ava)+"***"
+        wrong = ""
+        for i in range(len(pp)):
+            if pp[i] == None:
+                wrong += players[i] + " "
+        status = "**Error setting up the battle! " + wrong + "didn't submit!**"
 
-    return status, result, log1, log2, replay
+    return status, result, logs, replay
